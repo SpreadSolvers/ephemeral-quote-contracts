@@ -7,8 +7,9 @@ import {SafeCast} from "v3-core/contracts/libraries/SafeCast.sol";
 
 /**
  * @notice Quotes output for Uniswap V3 pool (exact input single).
- * @dev Uses pool.swap() and reverts in callback with amountOut. Set protocolFeeBps to match
- *      frontend "amount received" when router takes a cut. Use 0 for raw pool quote.
+ * @dev Uses pool.swap() and reverts in callback with amountOut. Must be deployed and called via
+ *      quote(); ephemeral `new` fails because the pool callback targets an address with no code yet.
+ *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
  */
 contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
     error AmountOut(uint256 amountOut);
@@ -22,7 +23,7 @@ contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
      * @param amountIn       Input amount.
      * @param protocolFeeBps Optional fee in basis points deducted from amountOut. Use 0 for raw quote.
      */
-    constructor(address pool, address tokenIn, uint256 amountIn, uint256 protocolFeeBps) {
+    function quote(address pool, address tokenIn, uint256 amountIn, uint256 protocolFeeBps) external {
         IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
         address token0 = v3Pool.token0();
         bool zeroForOne = tokenIn == token0;
