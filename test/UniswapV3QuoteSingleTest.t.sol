@@ -26,11 +26,17 @@ interface IQuoterV2 {
  * @dev Catches AmountOut revert and returns decoded amountOut.
  */
 contract QuoteSingleHelper {
+    UniswapV3QuoteSingle public quoter;
+
+    constructor() {
+        quoter = new UniswapV3QuoteSingle();
+    }
+
     function getAmountOut(address pool, address tokenIn, uint256 amountIn, uint256 protocolFeeBps)
         external
         returns (uint256 amountOut)
     {
-        try new UniswapV3QuoteSingle(pool, tokenIn, amountIn, protocolFeeBps) {
+        try quoter.quote(pool, tokenIn, amountIn, protocolFeeBps) {
             revert("QuoteSingleHelper: expected revert");
         } catch (bytes memory reason) {
             require(reason.length >= 36, "QuoteSingleHelper: no revert data");
@@ -46,8 +52,8 @@ contract QuoteSingleHelper {
 contract UniswapV3QuoteSingleTest is Test {
     QuoteSingleHelper public helper;
 
-    // Uniswap V3 USDC/WETH 0.3% pool on Ethereum
-    address constant POOL = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640;
+    // Uniswap V3 USDC/WETH 0.3% pool on Ethereum (same as QuoterV2 uses)
+    address constant POOL = 0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8;
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     uint24 constant FEE = 3000; // 0.3%
@@ -59,26 +65,18 @@ contract UniswapV3QuoteSingleTest is Test {
 
     function setUp() public {
         string memory rpcUrl = vm.envOr("ETHEREUM_RPC_URL", vm.envOr("RPC_URL", string("")));
-        if (bytes(rpcUrl).length == 0) {
-            return;
-        }
+        vm.skip(bytes(rpcUrl).length == 0);
         vm.createSelectFork(rpcUrl, ETH_FORK_BLOCK);
         helper = new QuoteSingleHelper();
     }
 
     function testFork_QuoteMatchesQuoterV2_UsdcToWeth() public {
-        if (address(helper) == address(0)) return;
-
         uint256 amountIn = 1_000_000; // 1 USDC (6 decimals)
 
         uint256 ourQuote = helper.getAmountOut(POOL, USDC, amountIn, 0);
 
         IQuoterV2.QuoteExactInputSingleParams memory params = IQuoterV2.QuoteExactInputSingleParams({
-            tokenIn: USDC,
-            tokenOut: WETH,
-            amountIn: amountIn,
-            fee: FEE,
-            sqrtPriceLimitX96: 0
+            tokenIn: USDC, tokenOut: WETH, amountIn: amountIn, fee: FEE, sqrtPriceLimitX96: 0
         });
         (uint256 quoterV2AmountOut,,,) = IQuoterV2(QUOTER_V2).quoteExactInputSingle(params);
 
@@ -86,18 +84,12 @@ contract UniswapV3QuoteSingleTest is Test {
     }
 
     function testFork_QuoteMatchesQuoterV2_WethToUsdc() public {
-        if (address(helper) == address(0)) return;
-
         uint256 amountIn = 1e18; // 1 WETH
 
         uint256 ourQuote = helper.getAmountOut(POOL, WETH, amountIn, 0);
 
         IQuoterV2.QuoteExactInputSingleParams memory params = IQuoterV2.QuoteExactInputSingleParams({
-            tokenIn: WETH,
-            tokenOut: USDC,
-            amountIn: amountIn,
-            fee: FEE,
-            sqrtPriceLimitX96: 0
+            tokenIn: WETH, tokenOut: USDC, amountIn: amountIn, fee: FEE, sqrtPriceLimitX96: 0
         });
         (uint256 quoterV2AmountOut,,,) = IQuoterV2(QUOTER_V2).quoteExactInputSingle(params);
 
@@ -105,8 +97,6 @@ contract UniswapV3QuoteSingleTest is Test {
     }
 
     function testFork_ProtocolFeeReducesAmountOut() public {
-        if (address(helper) == address(0)) return;
-
         uint256 amountIn = 1_000_000; // 1 USDC
         uint256 protocolFeeBps = 300; // 3%
 
