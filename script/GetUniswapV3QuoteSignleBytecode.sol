@@ -2,11 +2,11 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
-import {UniswapV3QuoteSingle} from "../src/UniswapV3QuoteSingle.sol";
+import {UniswapV3QuoteSingleEphemeral} from "src/UniswapV3QuoteSingleEphemeral.sol";
 
-contract GetUniswapV3QuoteSingleBytecode is Script {
+contract GetUniswapV3QuoteSingleEphemeralBytecode is Script {
     function run() public pure returns (bytes memory) {
-        bytes memory bytecode = type(UniswapV3QuoteSingle).creationCode;
+        bytes memory bytecode = type(UniswapV3QuoteSingleEphemeral).creationCode;
         return bytecode;
     }
 }
