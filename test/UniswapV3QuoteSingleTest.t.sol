@@ -24,6 +24,7 @@ interface IQuoterV2 {
 /**
  * @title QuoteSingleHelper
  * @dev Catches AmountOut revert and returns decoded amountOut.
+ *      Re-reverts InsufficientLiquidity and PartialFill so callers can catch them.
  */
 contract QuoteSingleHelper {
     UniswapV3QuoteSingle public quoter;
@@ -39,7 +40,19 @@ contract QuoteSingleHelper {
         try quoter.quote(pool, tokenIn, amountIn, protocolFeeBps) {
             revert("QuoteSingleHelper: expected revert");
         } catch (bytes memory reason) {
-            require(reason.length >= 36, "QuoteSingleHelper: no revert data");
+            require(reason.length >= 4, "QuoteSingleHelper: no revert data");
+
+            bytes4 selector = bytes4(reason);
+            if (
+                selector == UniswapV3QuoteSingle.InsufficientLiquidity.selector
+                    || selector == UniswapV3QuoteSingle.PartialFill.selector
+            ) {
+                assembly {
+                    revert(add(reason, 0x20), mload(reason))
+                }
+            }
+
+            require(reason.length >= 36, "QuoteSingleHelper: unexpected revert data");
             bytes memory payload = new bytes(reason.length - 4);
             for (uint256 j; j < payload.length; j++) {
                 payload[j] = reason[j + 4];
@@ -105,5 +118,36 @@ contract UniswapV3QuoteSingleTest is Test {
 
         uint256 expectedWithFee = (quoteNoFee * (10_000 - protocolFeeBps)) / 10_000;
         assertEq(quoteWithFee, expectedWithFee, "protocol fee not applied");
+    }
+
+    function testFork_quote_RevertOn_InsufficientLiquidity() public {
+        UniswapV3QuoteSingle quoter = new UniswapV3QuoteSingle();
+
+        vm.mockCall(POOL, abi.encodeWithSignature("liquidity()"), abi.encode(uint128(0)));
+
+        vm.expectRevert(UniswapV3QuoteSingle.InsufficientLiquidity.selector);
+        quoter.quote(POOL, USDC, 1_000_000, 0);
+    }
+
+    function testFork_quote_RevertOn_PartialFill() public {
+        UniswapV3QuoteSingle quoter = new UniswapV3QuoteSingle();
+
+        uint256 hugeAmountIn = type(uint128).max;
+
+        try quoter.quote(POOL, USDC, hugeAmountIn, 0) {
+            revert("expected revert");
+        } catch (bytes memory reason) {
+            bytes4 selector = bytes4(reason);
+            assertEq(selector, UniswapV3QuoteSingle.PartialFill.selector, "expected PartialFill selector");
+
+            bytes memory payload = new bytes(reason.length - 4);
+            for (uint256 j; j < payload.length; j++) {
+                payload[j] = reason[j + 4];
+            }
+            (uint256 amountOut, uint256 amountInConsumed) = abi.decode(payload, (uint256, uint256));
+            assertGt(amountOut, 0, "amountOut should be > 0");
+            assertGt(amountInConsumed, 0, "amountInConsumed should be > 0");
+            assertLt(amountInConsumed, hugeAmountIn, "amountInConsumed should be < requested");
+        }
     }
 }
