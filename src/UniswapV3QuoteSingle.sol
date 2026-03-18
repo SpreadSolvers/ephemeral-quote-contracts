@@ -12,10 +12,19 @@ import {SafeCast} from "v3-core/contracts/libraries/SafeCast.sol";
  *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
  */
 contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
+
+    /* ======== ERRORS ======== */
+
     error AmountOut(uint256 amountOut);
+    error InsufficientLiquidity();
+    error PartialFill(uint256 amountOut, uint256 amountInConsumed);
+
+    /* ======== STATE ======== */
 
     uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
     uint160 private constant MAX_SQRT_RATIO_MINUS_ONE = 1461446703485210103287273052203988822378723970341;
+
+    /* ======== EXTERNAL/PUBLIC ======== */
 
     /**
      * @param pool           V3 pool address.
@@ -25,13 +34,20 @@ contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
      */
     function quote(address pool, address tokenIn, uint256 amountIn, uint256 protocolFeeBps) external {
         IUniswapV3Pool v3Pool = IUniswapV3Pool(pool);
+
+        if (v3Pool.liquidity() == 0) revert InsufficientLiquidity();
+
         address token0 = v3Pool.token0();
         bool zeroForOne = tokenIn == token0;
 
         uint160 sqrtPriceLimitX96 = zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE;
 
         v3Pool.swap(
-            address(this), zeroForOne, SafeCast.toInt256(amountIn), sqrtPriceLimitX96, abi.encode(protocolFeeBps)
+            address(this),
+            zeroForOne,
+            SafeCast.toInt256(amountIn),
+            sqrtPriceLimitX96,
+            abi.encode(protocolFeeBps, amountIn)
         );
     }
 
@@ -41,8 +57,22 @@ contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
         pure
         override
     {
-        uint256 amountOut = amount0Delta > 0 ? uint256(-amount1Delta) : uint256(-amount0Delta);
-        uint256 protocolFeeBps = abi.decode(data, (uint256));
+        (uint256 protocolFeeBps, uint256 requestedAmountIn) = abi.decode(data, (uint256, uint256));
+
+        uint256 amountOut;
+        uint256 amountInConsumed;
+        if (amount0Delta > 0) {
+            amountInConsumed = uint256(amount0Delta);
+            amountOut = uint256(-amount1Delta);
+        } else {
+            amountInConsumed = uint256(amount1Delta);
+            amountOut = uint256(-amount0Delta);
+        }
+
+        if (amountInConsumed < requestedAmountIn) {
+            revert PartialFill(amountOut, amountInConsumed);
+        }
+
         if (protocolFeeBps > 0 && protocolFeeBps < 10_000) {
             amountOut = (amountOut * (10_000 - protocolFeeBps)) / 10_000;
         }
