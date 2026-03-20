@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: (c) 2024 Cicada Software, CICADA DMCC. All rights reserved.
 pragma solidity ^0.8.24;
 
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IPositionManager} from "./interfaces/IPositionManager.sol";
 import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
@@ -42,6 +44,30 @@ contract UniswapV4QuoteSingle is IUnlockCallback {
     function quote(address poolManager, PoolKey calldata key, address tokenIn, uint256 amountIn, uint256 protocolFeeBps)
         external
     {
+        IPoolManager(poolManager).unlock(abi.encode(poolManager, key, tokenIn, amountIn, protocolFeeBps));
+    }
+
+    /**
+     * @notice Quote by poolId. Fetches poolManager and PoolKey from PositionManager on-chain.
+     * @param positionManager PositionManager contract address (e.g. 0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e on Ethereum).
+     * @param poolId         bytes32 pool identifier (keccak256(abi.encode(poolKey))); stripped to bytes25 for PositionManager lookup.
+     * @param tokenIn        Input token (currency0 or currency1).
+     * @param amountIn       Input amount.
+     * @param protocolFeeBps Optional fee in basis points deducted from amountOut. Use 0 for raw quote.
+     */
+    function quoteByPoolId(
+        address positionManager,
+        bytes32 poolId,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 protocolFeeBps
+    ) external {
+        bytes25 poolId25 = bytes25(uint200(uint256(poolId) >> 56));
+        address poolManager = IPositionManager(positionManager).poolManager();
+        (Currency currency0, Currency currency1, uint24 fee, int24 tickSpacing, IHooks hooks) =
+            IPositionManager(positionManager).poolKeys(poolId25);
+        PoolKey memory key =
+            PoolKey({currency0: currency0, currency1: currency1, fee: fee, tickSpacing: tickSpacing, hooks: hooks});
         IPoolManager(poolManager).unlock(abi.encode(poolManager, key, tokenIn, amountIn, protocolFeeBps));
     }
 

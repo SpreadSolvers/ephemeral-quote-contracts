@@ -7,6 +7,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {UniswapV4QuoteSingle} from "../src/UniswapV4QuoteSingle.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -69,6 +70,40 @@ contract V4QuoteSingleHelper {
             amountOut = abi.decode(payload, (uint256));
         }
     }
+
+    function getAmountOutByPoolId(
+        address positionManager,
+        bytes32 poolId,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 protocolFeeBps
+    ) external returns (uint256 amountOut) {
+        try quoter.quoteByPoolId(positionManager, poolId, tokenIn, amountIn, protocolFeeBps) {
+            revert("V4QuoteSingleHelper: expected revert");
+        } catch (bytes memory reason) {
+            require(reason.length >= 4, "V4QuoteSingleHelper: no revert data");
+
+            bytes4 selector;
+            // forge-lint: disable-next-line(unsafe-typecast)
+            selector = bytes4(reason);
+
+            if (
+                selector == UniswapV4QuoteSingle.InsufficientLiquidity.selector
+                    || selector == IPoolManager.PoolNotInitialized.selector
+            ) {
+                assembly {
+                    revert(add(reason, 0x20), mload(reason))
+                }
+            }
+
+            require(reason.length >= 36, "V4QuoteSingleHelper: unexpected revert data");
+            bytes memory payload = new bytes(reason.length - 4);
+            for (uint256 j; j < payload.length; j++) {
+                payload[j] = reason[j + 4];
+            }
+            amountOut = abi.decode(payload, (uint256));
+        }
+    }
 }
 
 contract UniswapV4QuoteSingleTest is Test {
@@ -76,6 +111,7 @@ contract UniswapV4QuoteSingleTest is Test {
 
     // Uniswap V4 on Ethereum mainnet
     address constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    address constant POSITION_MANAGER = 0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e;
     address constant QUOTER = 0x52F0E24D1c21C8A0cB1e5a5dD6198556BD9E1203;
 
     // USDC/WETH 0.05% pool — USDC (0xA0..) < WETH (0xC0..) so currency0=USDC, currency1=WETH
@@ -94,6 +130,11 @@ contract UniswapV4QuoteSingleTest is Test {
             tickSpacing: TICK_SPACING,
             hooks: IHooks(address(0))
         });
+    }
+
+    /// @dev Returns bytes32 poolId (keccak256(abi.encode(poolKey))) for quoteByPoolId; contract strips to bytes25 for PositionManager.
+    function _poolIdBytes32() internal pure returns (bytes32) {
+        return PoolId.unwrap(_poolKey().toId());
     }
 
     function setUp() public {
@@ -142,6 +183,22 @@ contract UniswapV4QuoteSingleTest is Test {
 
         uint256 expectedWithFee = (quoteNoFee * (10_000 - protocolFeeBps)) / 10_000;
         assertEq(quoteWithFee, expectedWithFee, "protocol fee not applied correctly");
+    }
+
+    function testFork_QuoteByPoolId_MatchesOfficialQuoter_UsdcToWeth() public {
+        uint256 amountIn = 1_000_000; // 1 USDC
+        bytes32 poolId = _poolIdBytes32();
+
+        uint256 ourQuote = helper.getAmountOutByPoolId(POSITION_MANAGER, poolId, USDC, amountIn, 0);
+
+        (uint256 officialAmountOut,) = IV4Quoter(QUOTER)
+            .quoteExactInputSingle(
+                IV4Quoter.QuoteExactSingleParams({
+                    poolKey: _poolKey(), zeroForOne: true, exactAmount: uint128(amountIn), hookData: ""
+                })
+            );
+
+        assertEq(ourQuote, officialAmountOut, "quoteByPoolId != official V4 Quoter");
     }
 
     function testFork_quote_RevertOn_PoolNotInitialized() public {
