@@ -7,6 +7,7 @@ import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {Currency} from "v4-core/types/Currency.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
 
 /**
  * @notice Quotes output for Uniswap V4 pool (exact input single).
@@ -50,7 +51,7 @@ contract UniswapV4QuoteSingle is IUnlockCallback {
         BalanceDelta delta = IPoolManager(poolManager)
             .swap(
                 key,
-                IPoolManager.SwapParams({
+                SwapParams({
                     zeroForOne: zeroForOne,
                     amountSpecified: -int256(amountIn),
                     sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE
