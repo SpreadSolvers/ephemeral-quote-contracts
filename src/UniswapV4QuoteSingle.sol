@@ -15,7 +15,6 @@ import {Currency} from "v4-core/types/Currency.sol";
  *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
  */
 contract UniswapV4QuoteSingle is IUnlockCallback {
-
     /* ======== ERRORS ======== */
 
     error AmountOut(uint256 amountOut);
@@ -35,13 +34,9 @@ contract UniswapV4QuoteSingle is IUnlockCallback {
      * @param amountIn       Input amount.
      * @param protocolFeeBps Optional fee in basis points deducted from amountOut. Use 0 for raw quote.
      */
-    function quote(
-        address poolManager,
-        PoolKey calldata key,
-        address tokenIn,
-        uint256 amountIn,
-        uint256 protocolFeeBps
-    ) external {
+    function quote(address poolManager, PoolKey calldata key, address tokenIn, uint256 amountIn, uint256 protocolFeeBps)
+        external
+    {
         IPoolManager(poolManager).unlock(abi.encode(poolManager, key, tokenIn, amountIn, protocolFeeBps));
     }
 
@@ -52,15 +47,16 @@ contract UniswapV4QuoteSingle is IUnlockCallback {
 
         bool zeroForOne = tokenIn == Currency.unwrap(key.currency0);
 
-        BalanceDelta delta = IPoolManager(poolManager).swap(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: zeroForOne,
-                amountSpecified: -int256(amountIn),
-                sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE
-            }),
-            ""
-        );
+        BalanceDelta delta = IPoolManager(poolManager)
+            .swap(
+                key,
+                IPoolManager.SwapParams({
+                    zeroForOne: zeroForOne,
+                    amountSpecified: -int256(amountIn),
+                    sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE
+                }),
+                ""
+            );
 
         uint256 amountOut = zeroForOne ? uint256(uint128(-delta.amount1())) : uint256(uint128(-delta.amount0()));
 

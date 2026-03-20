@@ -12,7 +12,6 @@ import {SafeCast} from "v3-core/contracts/libraries/SafeCast.sol";
  *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
  */
 contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
-
     /* ======== ERRORS ======== */
 
     error AmountOut(uint256 amountOut);
