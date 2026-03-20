@@ -14,8 +14,13 @@ import {SwapParams} from "v4-core/types/PoolOperation.sol";
  * @dev Uses PoolManager.unlock() → unlockCallback() → swap() and reverts in callback with amountOut.
  *      Must be deployed before calling quote() because unlock() requires the callback caller has code.
  *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
+ *
+ * @dev BalanceDelta sign convention (from the caller's perspective):
+ *      positive amount  → you RECEIVE that token (pool owes you)
+ *      negative amount  → you PAY that token (you owe the pool)
  */
 contract UniswapV4QuoteSingle is IUnlockCallback {
+
     /* ======== ERRORS ======== */
 
     error AmountOut(uint256 amountOut);
@@ -48,18 +53,22 @@ contract UniswapV4QuoteSingle is IUnlockCallback {
 
         bool zeroForOne = tokenIn == Currency.unwrap(key.currency0);
 
-        BalanceDelta delta = IPoolManager(poolManager)
-            .swap(
-                key,
-                SwapParams({
-                    zeroForOne: zeroForOne,
-                    amountSpecified: -int256(amountIn),
-                    sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE
-                }),
-                ""
-            );
+        BalanceDelta delta = IPoolManager(poolManager).swap(
+            key,
+            SwapParams({
+                zeroForOne: zeroForOne,
+                amountSpecified: -int256(amountIn),
+                sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE
+            }),
+            ""
+        );
 
-        uint256 amountOut = zeroForOne ? uint256(uint128(-delta.amount1())) : uint256(uint128(-delta.amount0()));
+        // BalanceDelta: positive = you RECEIVE, negative = you PAY.
+        // For zeroForOne: amount1 > 0 is the token1 (tokenOut) you receive.
+        // For !zeroForOne: amount0 > 0 is the token0 (tokenOut) you receive.
+        uint256 amountOut = zeroForOne
+            ? uint256(uint128(delta.amount1()))
+            : uint256(uint128(delta.amount0()));
 
         if (amountOut == 0) revert InsufficientLiquidity();
 
