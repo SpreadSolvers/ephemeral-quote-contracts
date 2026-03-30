@@ -7,8 +7,9 @@ import {SafeCast} from "v3-core/contracts/libraries/SafeCast.sol";
 
 /**
  * @notice Quotes output for Uniswap V3 pool (exact input single).
- * @dev Uses pool.swap() and reverts in callback with amountOut. Must be deployed and called via
- *      quote(); ephemeral `new` fails because the pool callback targets an address with no code yet.
+ * @dev Uses pool.swap() and reverts in callback with amountOut. Use `UniswapV3QuoteSingleEphemeral`
+ *      for off-chain CREATE-and-discard (nested deploy then quote). PancakeSwap V3 pools call
+ *      `pancakeV3SwapCallback` instead of `uniswapV3SwapCallback`; both are implemented here.
  *      Set protocolFeeBps to match frontend "amount received" when router takes a cut. Use 0 for raw quote.
  */
 contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
@@ -56,6 +57,18 @@ contract UniswapV3QuoteSingle is IUniswapV3SwapCallback {
         pure
         override
     {
+        _swapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    /// @notice PancakeSwap V3-compatible entrypoint (same logic as `uniswapV3SwapCallback`).
+    function pancakeV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data)
+        external
+        pure
+    {
+        _swapCallback(amount0Delta, amount1Delta, data);
+    }
+
+    function _swapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) private pure {
         (uint256 protocolFeeBps, uint256 requestedAmountIn) = abi.decode(data, (uint256, uint256));
 
         uint256 amountOut;
